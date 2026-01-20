@@ -1,0 +1,238 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import requests
+import json
+import re
+import os
+import sys
+from PIL import Image, ImageTk
+import threading
+import webbrowser
+from datetime import datetime
+import base64
+import sqlite3
+import subprocess
+import platform
+import random
+import string
+
+class VehicleDetailsFinder:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("VECH-INFO - Vehicle Details Finder")
+        self.root.geometry("900x700")
+        self.root.configure(bg="#0a0a0a")
+        
+        # Hide console window
+        if platform.system() == "Windows":
+            import ctypes
+            ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+        
+        # Database setup
+        self.setup_database()
+        
+        # Variables
+        self.number_plate_var = tk.StringVar()
+        self.country_var = tk.StringVar(value="India")
+        self.result_text = tk.Text(self.root, height=20, width=80, bg="#1a1a1a", fg="#00ff00", wrap=tk.WORD)
+        
+        # Create GUI elements
+        self.create_widgets()
+        
+        # Apply dark theme
+        self.apply_dark_theme()
+    
+    def setup_database(self):
+        """Setup SQLite database for storing vehicle details"""
+        self.conn = sqlite3.connect('vehicle_details.db')
+        self.cursor = self.conn.cursor()
+        
+        # Create table if not exists
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS vehicle_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            number_plate TEXT UNIQUE,
+            country TEXT,
+            owner_name TEXT,
+            vehicle_model TEXT,
+            mobile_number TEXT,
+            address TEXT,
+            rc_number TEXT,
+            father_name TEXT,
+            purchase_date TEXT,
+            insurance_expiry TEXT,
+            puc_validity TEXT,
+            vehicle_history TEXT,
+            owner_sequence TEXT,
+            challan_count TEXT,
+            challan_details TEXT,
+            documents_location TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        self.conn.commit()
+    
+    def create_widgets(self):
+        # Header frame with banner
+        header_frame = tk.Frame(self.root, bg="#0a0a0a")
+        header_frame.pack(fill=tk.X, pady=10)
+        
+        # Banner image (if available)
+        try:
+            banner_img = Image.open("banner.jpg")
+            banner_img = banner_img.resize((850, 150), Image.LANCZOS)
+            banner_photo = ImageTk.PhotoImage(banner_img)
+            banner_label = tk.Label(header_frame, image=banner_photo, bg="#0a0a0a")
+            banner_label.image = banner_photo
+            banner_label.pack()
+        except:
+            # If banner image not found, create a text banner
+            banner_label = tk.Label(
+                header_frame, 
+                text="🚗 VECH-INFO - VEHICLE DETAILS FINDER 🏍️", 
+                font=("Arial", 28, "bold"),
+                bg="#0a0a0a",
+                fg="#ff6600"
+            )
+            banner_label.pack(pady=10)
+        
+        # Author info
+        author_label = tk.Label(
+            header_frame, 
+            text="Created by: azod814", 
+            font=("Arial", 14, "bold"),
+            bg="#0a0a0a",
+            fg="#00ccff"
+        )
+        author_label.pack()
+        
+        # Main content frame
+        main_frame = tk.Frame(self.root, bg="#0a0a0a")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # Country selection
+        country_frame = tk.Frame(main_frame, bg="#0a0a0a")
+        country_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(country_frame, text="Select Country:", font=("Arial", 14, "bold"), bg="#0a0a0a", fg="#00ff00").pack(side=tk.LEFT, padx=5)
+        
+        countries = ["India", "UK", "USA", "Australia", "Canada", "Germany", "France", "Other"]
+        country_dropdown = ttk.Combobox(country_frame, textvariable=self.country_var, values=countries, state="readonly", width=15)
+        country_dropdown.pack(side=tk.LEFT, padx=5)
+        
+        # Number plate input
+        plate_frame = tk.Frame(main_frame, bg="#0a0a0a")
+        plate_frame.pack(fill=tk.X, pady=10)
+        
+        tk.Label(plate_frame, text="Number Plate:", font=("Arial", 14, "bold"), bg="#0a0a0a", fg="#00ff00").pack(side=tk.LEFT, padx=5)
+        
+        plate_entry = tk.Entry(plate_frame, textvariable=self.number_plate_var, font=("Arial", 14), width=30, bg="#1a1a1a", fg="#00ff00")
+        plate_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Search button
+        search_btn = tk.Button(
+            plate_frame, 
+            text="🔍 SEARCH", 
+            command=self.search_vehicle_details,
+            font=("Arial", 14, "bold"),
+            bg="#ff6600",
+            fg="#000000",
+            cursor="hand2"
+        )
+        search_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Result frame
+        result_frame = tk.Frame(main_frame, bg="#0a0a0a")
+        result_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        tk.Label(result_frame, text="Vehicle Details:", font=("Arial", 16, "bold"), bg="#0a0a0a", fg="#00ff00").pack(anchor=tk.W)
+        
+        # Result text with scrollbar
+        result_scroll = tk.Scrollbar(result_frame)
+        result_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.result_text.config(yscrollcommand=result_scroll.set)
+        result_scroll.config(command=self.result_text.yview)
+        
+        self.result_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Action buttons frame
+        action_frame = tk.Frame(main_frame, bg="#0a0a0a")
+        action_frame.pack(fill=tk.X, pady=10)
+        
+        save_btn = tk.Button(
+            action_frame, 
+            text="💾 SAVE", 
+            command=self.save_details,
+            font=("Arial", 12, "bold"),
+            bg="#0066cc",
+            fg="#ffffff",
+            cursor="hand2"
+        )
+        save_btn.pack(side=tk.LEFT, padx=5)
+        
+        clear_btn = tk.Button(
+            action_frame, 
+            text="🗑️ CLEAR", 
+            command=self.clear_results,
+            font=("Arial", 12, "bold"),
+            bg="#cc0000",
+            fg="#ffffff",
+            cursor="hand2"
+        )
+        clear_btn.pack(side=tk.LEFT, padx=5)
+        
+        export_btn = tk.Button(
+            action_frame, 
+            text="📄 EXPORT", 
+            command=self.export_details,
+            font=("Arial", 12, "bold"),
+            bg="#009900",
+            fg="#ffffff",
+            cursor="hand2"
+        )
+        export_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Footer
+        footer_frame = tk.Frame(self.root, bg="#0a0a0a")
+        footer_frame.pack(fill=tk.X, pady=5)
+        
+        footer_label = tk.Label(
+            footer_frame, 
+            text="© 2023 VECH-INFO | Multi-Country Vehicle Details Finder", 
+            font=("Arial", 12, "bold"),
+            bg="#0a0a0a",
+            fg="#00ccff"
+        )
+        footer_label.pack()
+    
+    def apply_dark_theme(self):
+        """Apply dark theme to ttk widgets"""
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        style.configure('TCombobox',
+                        fieldbackground='#1a1a1a',
+                        background='#1a1a1a',
+                        foreground='#00ff00',
+                        bordercolor='#0a0a0a',
+                        arrowcolor='#00ff00')
+        
+        style.map('TCombobox',
+                  fieldbackground=[('readonly', '#1a1a1a')],
+                  background=[('readonly', '#1a1a1a')],
+                  foreground=[('readonly', '#00ff00')])
+    
+    def validate_number_plate(self, plate, country):
+        """Validate number plate format based on country"""
+        plate = plate.strip().upper()
+        
+        if country == "India":
+            # Indian number plate format: XX-XX-XXXX-XXXX or XX-XX-XXXX
+            pattern = r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{1,4}\$'
+            return bool(re.match(pattern, plate.replace("-", "").replace(" ", "")))
+        
+        elif country == "UK":
+            # UK number plate format: XX12 XXX or X12 XXX
+            pattern = r'^[A-Z]{2}[0-9]{2}\s?[A-Z]{3}$|^[A-Z][0-9]{2,3}\s?[A-Z]{3}$'
+            return bool(re.match(pattern, plate
